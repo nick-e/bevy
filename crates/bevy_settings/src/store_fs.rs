@@ -1,7 +1,10 @@
 use bevy_log::{debug, error, warn};
 use bevy_platform::dirs::preferences_dir;
 use bevy_tasks::IoTaskPool;
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 /// Persistent storage which uses the local filesystem. Settings will be located in the
 /// OS-specific directory for user settings.
@@ -14,17 +17,23 @@ impl SettingsStore {
     ///
     /// # Arguments
     /// * `app_name` - The name of the application. See [`crate::SettingsPlugin`] for usage.
-    pub(crate) fn new(app_name: &str) -> Self {
-        Self {
-            base_path: if let Some(base_dir) = preferences_dir() {
-                let prefs_path = base_dir.join(app_name);
-                debug!("Settings path: {:?}", prefs_path);
-                Some(prefs_path)
-            } else {
-                warn!("Could not find user configuration directories");
-                None
+    /// * `base_dir` - Directory override. `None` uses the OS preferences directory joined with
+    ///   `app_name`; `Some` is used as-is.
+    pub(crate) fn new(app_name: &str, base_dir: Option<&Path>) -> Self {
+        let base_path = match base_dir {
+            Some(dir) => Some(dir.to_path_buf()),
+            None => match preferences_dir() {
+                Some(prefs) => Some(prefs.join(app_name)),
+                None => {
+                    warn!("Could not find user configuration directories");
+                    None
+                }
             },
+        };
+        if let Some(path) = &base_path {
+            debug!("Settings path: {:?}", path);
         }
+        Self { base_path }
     }
 
     /// Save a [`toml::Table`] to disk.
@@ -133,5 +142,36 @@ pub(crate) fn decode_toml_file(file: &PathBuf) -> Option<toml::Table> {
     } else {
         // Settings file does not exist yet.
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn base_dir_override_is_honored() {
+        let tmp =
+            std::env::temp_dir().join(format!("bevy-settings-basedir-{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+
+        let store = SettingsStore::new("com.example.app", Some(tmp.as_path()));
+        let mut table = toml::Table::new();
+        table.insert("k".to_string(), toml::Value::Integer(7));
+        store.save("settings", table);
+
+        assert!(
+            tmp.join("settings.toml").exists(),
+            "settings.toml should be written directly under the override dir"
+        );
+        assert!(
+            !tmp.join("com.example.app").exists(),
+            "the override dir is used as-is, with no app-name subdir"
+        );
+
+        let loaded = store.load("settings").expect("file should reload");
+        assert_eq!(loaded.get("k").and_then(toml::Value::as_integer), Some(7));
+
+        fs::remove_dir_all(&tmp).ok();
     }
 }

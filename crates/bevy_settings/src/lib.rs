@@ -6,6 +6,7 @@
 use core::any::TypeId;
 use core::time::Duration;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::{
@@ -82,6 +83,10 @@ use store_wasm::SettingsStore;
 pub struct SettingsPlugin {
     /// The unique name of the application.
     pub app_name: String,
+
+    /// Directory to read settings from and write them to. `None` uses the OS preferences
+    /// directory joined with `app_name`.
+    pub base_dir: Option<PathBuf>,
 }
 
 impl SettingsPlugin {
@@ -89,13 +94,22 @@ impl SettingsPlugin {
     pub fn new(app_name: &str) -> Self {
         Self {
             app_name: app_name.to_string(),
+            base_dir: None,
         }
+    }
+
+    /// Override the directory settings are stored in, instead of the OS preferences directory.
+    /// The directory is used as-is, with no `app_name` join.
+    pub fn with_base_dir(mut self, base_dir: impl Into<PathBuf>) -> Self {
+        self.base_dir = Some(base_dir.into());
+        self
     }
 }
 
 impl Plugin for SettingsPlugin {
     fn build(&self, app: &mut App) {
         let app_name = self.app_name.clone();
+        let base_dir = self.base_dir.clone();
         let world = app.world();
         let last_save = world.read_change_tick();
 
@@ -107,12 +121,20 @@ impl Plugin for SettingsPlugin {
         let types = app_types.read();
 
         let world = app.world_mut();
-        let file_index = build_settings_registry(&app_name, &types, last_save);
+        let mut file_index = build_settings_registry(&app_name, &types, last_save);
+        file_index.base_dir = base_dir.clone();
 
         // Now load each of the toml files we discovered, and apply their properties to
         // the resources in the world.
         for (filename, manifest) in file_index.files.iter() {
-            load_settings_file(world, &app_name, filename, manifest, &types);
+            load_settings_file(
+                world,
+                &app_name,
+                base_dir.as_deref(),
+                filename,
+                manifest,
+                &types,
+            );
         }
 
         // Cache the index so that we don't have to do it again when saving (and also makes
@@ -191,6 +213,10 @@ struct SettingsFileManifest {
 struct SettingsFileRegistry {
     /// App name (from plugin)
     app_name: String,
+
+    /// Directory settings files are read from and written to (from plugin). `None` uses the OS
+    /// preferences directory joined with `app_name`.
+    base_dir: Option<PathBuf>,
 
     /// List of known settings files, determined by scanning reflection registry.
     files: HashMap<&'static str, SettingsFileManifest>,
@@ -277,7 +303,7 @@ fn save_settings(world: &mut World, use_async: bool, force: bool) {
     for (filename, manifest) in registry.files.iter() {
         if force || has_settings_changed(world, manifest) {
             let table = resources_to_toml(world, &types, manifest);
-            let store = SettingsStore::new(&registry.app_name);
+            let store = SettingsStore::new(&registry.app_name, registry.base_dir.as_deref());
             if use_async {
                 store.save_async(filename, table);
             } else {
@@ -387,6 +413,7 @@ fn build_settings_registry(
     // each individual settings file.
     let mut file_index = SettingsFileRegistry {
         app_name: app_name.to_string(),
+        base_dir: None,
         files: HashMap::new(),
         save_timer: Timer::new(Duration::from_secs(1), TimerMode::Once),
     };
@@ -423,12 +450,13 @@ fn build_settings_registry(
 fn load_settings_file(
     world: &mut World,
     app_name: &str,
+    base_dir: Option<&Path>,
     filename: &str,
     manifest: &SettingsFileManifest,
     types: &TypeRegistry,
 ) {
     // Load the TOML file
-    let store = SettingsStore::new(app_name);
+    let store = SettingsStore::new(app_name, base_dir);
     let toml = store.load(filename);
     if toml.is_none() {
         warn!("Filename {filename}.toml not found");

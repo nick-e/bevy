@@ -12,7 +12,9 @@ impl SettingsStore {
     ///
     /// # Arguments
     /// * `app_name` - The name of the application. See [`crate::SettingsPlugin`] for usage.
-    pub fn new(app_name: &str) -> Self {
+    /// * `base_dir` - Ignored on wasm (browser local storage has no filesystem path); accepted
+    ///   for signature parity with the filesystem store.
+    pub fn new(app_name: &str, _base_dir: Option<&std::path::Path>) -> Self {
         Self {
             app_name: app_name.to_owned(),
         }
