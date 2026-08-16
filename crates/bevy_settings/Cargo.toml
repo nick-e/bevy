@@ -10,14 +10,17 @@ keywords = ["bevy"]
 
 [dependencies]
 # bevy
-bevy_app = { path = "../bevy_app", version = "0.19.1" }
-bevy_ecs = { path = "../bevy_ecs", version = "0.19.1" }
-bevy_ecs_macros = { path = "../bevy_ecs/macros", version = "0.19.1" }
-bevy_log = { path = "../bevy_log", version = "0.19.1" }
-bevy_platform = { path = "../bevy_platform", version = "0.19.1" }
-bevy_reflect = { path = "../bevy_reflect", version = "0.19.1" }
-bevy_tasks = { path = "../bevy_tasks", version = "0.19.1" }
-bevy_time = { path = "../bevy_time", version = "0.19.1" }
+# Published requirements rather than sibling paths, so a consumer that patches only this crate
+# resolves these to the same published crates the rest of its graph already uses. See the commit
+# that introduced this for why a path dependency breaks that consumer.
+bevy_app = "0.19.1"
+bevy_ecs = "0.19.1"
+bevy_ecs_macros = "0.19.1"
+bevy_log = "0.19.1"
+bevy_platform = "0.19.1"
+bevy_reflect = "0.19.1"
+bevy_tasks = "0.19.1"
+bevy_time = "0.19.1"
 
 serde = "1.0.217"
 thiserror = "2.0.18"
