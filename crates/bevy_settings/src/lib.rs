@@ -1078,4 +1078,67 @@ mod tests {
         let refresh_rate = world.get_resource::<CounterRefreshRateSettings>().unwrap();
         assert_eq!(*refresh_rate, CounterRefreshRateSettings::Fast);
     }
+
+    // Mirrors Altostratus's `GraphicsSettings.displays`: a Vec of a struct that carries the
+    // monitor id + nested 2-field resolution struct. NOTE: a `BTreeMap<String, struct>` field
+    // does NOT round-trip here (it serializes but the reflect load silently yields an empty
+    // map), which is why that game models per-display modes as a Vec, not a map.
+    #[test]
+    fn test_round_trip_vec_of_structs() {
+        #[derive(Reflect, PartialEq, Debug, Default, Clone)]
+        #[reflect(Default)]
+        struct Res2 {
+            width: u32,
+            height: u32,
+        }
+        #[derive(Reflect, PartialEq, Debug, Default, Clone)]
+        #[reflect(Default)]
+        struct Disp {
+            monitor: String,
+            resolution: Res2,
+            refresh_rate: u32,
+        }
+        #[derive(Resource, SettingsGroup, Reflect, PartialEq, Debug, Default)]
+        #[reflect(Resource, SettingsGroup, Default)]
+        struct VecSettings {
+            displays: Vec<Disp>,
+        }
+
+        let mut types = TypeRegistry::default();
+        types.register::<VecSettings>();
+
+        let displays = vec![
+            Disp {
+                monitor: "DELL".to_string(),
+                resolution: Res2 {
+                    width: 3840,
+                    height: 2160,
+                },
+                refresh_rate: 60,
+            },
+            Disp {
+                monitor: "ASUS".to_string(),
+                resolution: Res2 {
+                    width: 1920,
+                    height: 1080,
+                },
+                refresh_rate: 144,
+            },
+        ];
+
+        let mut world = World::new();
+        world.insert_resource(VecSettings {
+            displays: displays.clone(),
+        });
+        let manifest = SettingsFileManifest {
+            last_save: Tick::new(0),
+            resource_types: vec![TypeId::of::<VecSettings>()],
+        };
+        let table = resources_to_toml(&world, &types, &manifest);
+
+        let mut new_world = World::new();
+        apply_settings_to_world(&mut new_world, Some(&table), &manifest, &types);
+        let back = new_world.get_resource::<VecSettings>().unwrap();
+        assert_eq!(back.displays, displays);
+    }
 }
